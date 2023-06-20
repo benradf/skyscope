@@ -15,6 +15,7 @@ import Control.Concurrent (forkIO, getNumCapabilities, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar)
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVar, readTVarIO, stateTVar, writeTVar)
+import Control.Exception (onException)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.RWS (RWS, evalRWS)
 import Control.Monad.RWS.Class
@@ -23,7 +24,7 @@ import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Foldable (asum, for_)
-import Data.Functor (void, (<&>))
+import Data.Functor ((<&>), void)
 import Data.HList (Label (..))
 import Data.HList.Record (HasField, hLookupByLabel)
 import Data.Int (Int64)
@@ -43,9 +44,9 @@ import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (sizeOf)
 import GHC.Generics (Generic)
 import Model
-import Sqlite (Database)
-import qualified Sqlite
 import Prelude
+import qualified Sqlite
+import Sqlite (Database)
 
 type Pattern = Text
 
@@ -72,7 +73,7 @@ findPathAsync database origin destination = do
   pathFinder <- makePathFinder database ()
   liftIO $ pathFinder origin destination
 
-type PathFinder = NodeHash -> NodeHash -> IO (MVar [NodeHash])
+type PathFinder = Database -> NodeHash -> NodeHash -> IO (MVar [NodeHash])
 
 type MakePathFinderMemo = TVar (Map () PathFinder)
 
@@ -91,10 +92,18 @@ makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -
   Marshal.pokeArray predMapPtr $ fromIntegral <$> predMap
   stepMapPtr <- Marshal.mallocArray nodeCount
 
-  let findPath :: NodeHash -> NodeHash -> IO [NodeHash]
-      findPath origin destination = do
-        origin <- getNodeIdx origin
-        destination <- getNodeIdx destination
+  let findPath :: Database -> NodeHash -> NodeHash -> IO [NodeHash]
+      findPath database origin destination = do
+        let getNodeIdx :: NodeHash -> IO Int64
+            getNodeIdx hash = do
+              putStrLn $ "getNodeIdx: hash = " <> show hash
+              Sqlite.executeSqlScalar
+                database
+                ["SELECT idx FROM node WHERE hash = ?;"]
+                [SQLText $ traceValue "hash" hash]
+                <&> \(SQLInteger n) -> n
+        origin <- getNodeIdx $ traceValue "origin" origin
+        destination <- getNodeIdx $ traceValue "destination" destination
         steps <-
           Sqlite.executeSql
             database
@@ -155,16 +164,11 @@ makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -
 
   pure $ \origin destination -> do
     result <- newEmptyMVar
-    forkIO $ putMVar result =<< findPath origin destination
+    forkIO $ do
+      path <- findPath origin destination `onException` putMVar result []
+      putMVar result path
     pure result
   where
-    getNodeIdx :: NodeHash -> IO Int64
-    getNodeIdx hash =
-      Sqlite.executeSqlScalar
-        database
-        ["SELECT idx FROM node WHERE hash = ?;"]
-        [SQLText hash]
-        <&> \(SQLInteger n) -> n
 
     makePredMap :: Int -> IO [Int]
     makePredMap nodeCount = do

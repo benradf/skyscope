@@ -60,7 +60,7 @@ handleConflict action =
         else attempt (e : errors) deadline
 
 executeSql :: HasCallStack => Database -> [Text] -> [SQLData] -> IO [[SQLData]]
-executeSql database sql params = handleConflict $
+executeSql database sql params = handleConflict $ do
   withStatement database (Text.unlines sql) $ \statement -> do
     SQLite3.bind statement params
     let fetch =
