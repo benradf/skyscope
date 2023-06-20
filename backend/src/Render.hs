@@ -87,7 +87,7 @@ renderGraph database dbPath nodeStates = do
         [SQLText nodeHash]
         <&> \[[SQLText nodeType, SQLText nodeData]] -> Node nodeType nodeData
 
-  links <- findPathLinks database dbPath nodeStates edges
+  links <- findPathLinks dbPath nodeStates edges
 
   let graph =
         Text.unlines
@@ -168,17 +168,16 @@ data PathLink = PathLink
 
 findPathLinks ::
   (HasUnifyComponentsMemo r, HasMakePathFinderMemo r) =>
-  Database ->
   FilePath ->
   NodeMap NodeState ->
   [Edge] ->
   Memoize r [PathLink]
-findPathLinks database dbPath nodeStates edges =
+findPathLinks dbPath nodeStates edges =
   timed "findPathLinks" $
     nub <$> do
       let components = findComponents edges nodeStates
           pairs = concat [[(c1, c2), (c2, c1)] | c1 : cs <- tails components, c2 <- cs]
-      fmap catMaybes $ for pairs $ uncurry $ unifyComponents database dbPath nodeStates
+      fmap catMaybes $ for pairs $ uncurry $ unifyComponents dbPath nodeStates
 
 type Component = NodeMap NodeState
 
@@ -234,13 +233,12 @@ getUnifyComponentsMemo = hLookupByLabel (Label :: Label "unifyComponents")
 
 unifyComponents ::
   (HasUnifyComponentsMemo r, HasMakePathFinderMemo r) =>
-  Database ->
   FilePath ->
   NodeMap NodeState ->
   Component ->
   Component ->
   Memoize r (Maybe PathLink)
-unifyComponents database dbPath nodeStates = curry $
+unifyComponents dbPath nodeStates = curry $
   memoize "unifyComponents" getUnifyComponentsMemo $ \(c1, c2) -> do
     let unify (origin, destination) =
           findPath dbPath origin destination <&> \path ->

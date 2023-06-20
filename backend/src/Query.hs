@@ -11,29 +11,25 @@ module Query where
 
 import Common
 import Control.Category ((>>>))
-import Control.Concurrent (forkIO, getNumCapabilities, threadDelay)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar)
-import Control.Concurrent.STM (atomically, retry)
-import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVar, readTVarIO, stateTVar, writeTVar)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Concurrent.STM.TVar (TVar)
 import Control.Exception (onException)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.RWS (RWS, evalRWS)
 import Control.Monad.RWS.Class
 import Data.Aeson (FromJSON, ToJSON)
-import Data.Bifunctor (first)
-import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.Foldable (asum, for_)
-import Data.Functor ((<&>), void)
+import Data.Functor (void, (<&>))
 import Data.HList (Label (..))
 import Data.HList.Record (HasField, hLookupByLabel)
 import Data.Int (Int64)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
-import Data.List (nub, sort, sortOn, uncons)
+import Data.List (nub, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Traversable (for)
@@ -44,9 +40,9 @@ import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (sizeOf)
 import GHC.Generics (Generic)
 import Model
-import Prelude
-import qualified Sqlite
 import Sqlite (Database)
+import qualified Sqlite
+import Prelude
 
 type Pattern = Text
 
@@ -164,12 +160,12 @@ makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> lif
 
   pure $ \origin destination -> do
     result <- newEmptyMVar
-    forkIO $ do
-      path <- findPath origin destination `onException` putMVar result []
-      putMVar result path
+    void $
+      forkIO $ do
+        path <- findPath origin destination `onException` putMVar result []
+        putMVar result path
     pure result
   where
-
     makePredMap :: Database -> Int -> IO [Int]
     makePredMap database nodeCount = do
       predecessors <-
