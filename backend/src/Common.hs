@@ -29,25 +29,26 @@ memoize label memo action key = do
       action key >>= \value -> liftIO $ do
         atomically $ modifyTVar memo $ Map.insert key value
         pure value
-        --value <$ log 31 "miss\x1b[0m" (ansi 37 "  →   " <> show value)
   where
+    --value <$ log 31 "miss\x1b[0m" (ansi 37 "  →   " <> show value)
+
     ansi :: Integer -> String -> String
     ansi n s = "\x1b[" <> show n <> "m" <> s <> "\x1b[0m"
 
     log :: Integer -> String -> String -> IO ()
     log n outcome value = pure ()
-      --if enableLogging
-      --  then
-      --    putStrLn $
-      --      ansi n $
-      --        "memo cache "
-      --          <> outcome
-      --          <> " for "
-      --          <> label
-      --          <> ": "
-      --          <> show key
-      --          <> value
-      --  else pure ()
+    --if enableLogging
+    --  then
+    --    putStrLn $
+    --      ansi n $
+    --        "memo cache "
+    --          <> outcome
+    --          <> " for "
+    --          <> label
+    --          <> ": "
+    --          <> show key
+    --          <> value
+    --  else pure ()
 
     enableLogging :: Bool
     enableLogging = False

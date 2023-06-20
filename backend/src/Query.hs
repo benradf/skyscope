@@ -10,21 +10,29 @@
 module Query where
 
 import Common
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, readMVar)
-import Control.Concurrent.STM.TVar (TVar)
+import Control.Category ((>>>))
+import Control.Concurrent (forkIO, getNumCapabilities, threadDelay)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar)
+import Control.Concurrent.STM (atomically, retry)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVar, readTVarIO, stateTVar, writeTVar)
 import Control.Monad.IO.Class (MonadIO (..))
+import Control.Monad.RWS (RWS, evalRWS)
+import Control.Monad.RWS.Class
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.Functor ((<&>))
+import Data.Foldable (asum, for_)
+import Data.Functor (void, (<&>))
 import Data.HList (Label (..))
 import Data.HList.Record (HasField, hLookupByLabel)
 import Data.Int (Int64)
-import Data.List (nub, sort)
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+import Data.List (nub, sort, sortOn, uncons)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Traversable (for)
@@ -35,9 +43,9 @@ import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (sizeOf)
 import GHC.Generics (Generic)
 import Model
-import Prelude
-import qualified Sqlite
 import Sqlite (Database)
+import qualified Sqlite
+import Prelude
 
 type Pattern = Text
 
@@ -55,14 +63,15 @@ getFindPathMemo :: HasFindPathMemo r => r -> FindPathMemo
 getFindPathMemo = hLookupByLabel (Label :: Label "findPath")
 
 findPath :: HasFindPathMemo r => Database -> NodeHash -> NodeHash -> Memoize r [NodeHash]
-findPath database = curry $ memoize "findPath" getFindPathMemo $ \(origin, destination) ->
-  liftIO . readMVar =<< findPathAsync database origin destination
+findPath database = curry $
+  memoize "findPath" getFindPathMemo $ \(origin, destination) ->
+    liftIO . readMVar =<< findPathAsync database origin destination
 
 findPathAsync :: HasMakePathFinderMemo r => Database -> NodeHash -> NodeHash -> Memoize r (MVar [NodeHash])
 findPathAsync database origin destination = do
   pathFinder <- makePathFinder database ()
   liftIO $ pathFinder origin destination
-  
+
 type PathFinder = NodeHash -> NodeHash -> IO (MVar [NodeHash])
 
 type MakePathFinderMemo = TVar (Map () PathFinder)
@@ -73,11 +82,145 @@ getMakePathFinderMemo :: HasMakePathFinderMemo r => r -> MakePathFinderMemo
 getMakePathFinderMemo = hLookupByLabel (Label :: Label "makePathFinder")
 
 makePathFinder :: HasMakePathFinderMemo r => Database -> () -> Memoize r PathFinder
-makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -> do
-  pure $ \_ _ -> do
-    result <- newMVar []
+makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -> liftIO $ do
+  void $ Sqlite.executeSql database ["DELETE FROM path;"] []
+  nodeCount <- Sqlite.executeSqlScalar database ["SELECT COUNT(idx) FROM node;"] [] <&> fromSQLInt
+  predMap <- makePredMap nodeCount
+  let predMapSize = length predMap
+  --predMapPtr <- Marshal.mallocArray predMapSize
+  --Marshal.pokeArray predMapPtr $ fromIntegral <$> predMap
+  --stepMapPtr <- Marshal.mallocArray nodeCount
+
+  let findPath :: NodeHash -> NodeHash -> IO [NodeHash]
+      findPath origin destination = do
+        origin <- getNodeIdx origin
+        destination <- getNodeIdx destination
+        steps <-
+          Sqlite.executeSql
+            database
+            ["SELECT steps FROM path WHERE destination = ?;"]
+            [SQLInteger destination]
+            >>= \case
+              [[SQLBlob steps]] -> pure steps
+              [] -> undefined -- TODO: compute
+              [_] -> error "steps column has unexpected data type"
+              _ : _ : _ -> error "should be impossible due to primary key constraint on destination column"
+        let stepMapBytes = BS.unpack steps
+            stepMapSizeBytes = length stepMapBytes
+            stepMapSize = stepMapSizeBytes `div` sizeOf (0 :: CLong)
+        if stepMapSize * sizeOf (0 :: CLong) /= stepMapSizeBytes
+          then error $ "misaligned path data for " <> show destination
+          else Marshal.allocaArray stepMapSize $ \stepMapPtr -> do
+            Marshal.pokeArray (castPtr stepMapPtr) stepMapBytes
+            let maxLength = 1048576 -- 4MiB of int32_t
+            Marshal.allocaArray maxLength $ \pathPtr -> do
+              actualLength <-
+                fromIntegral
+                  <$> Query.c_findPath
+                    (fromIntegral origin)
+                    (fromIntegral destination)
+                    stepMapPtr
+                    (fromIntegral stepMapSize)
+                    pathPtr
+                    (fromIntegral maxLength)
+              if actualLength == -1
+                then error "exceeded max path length"
+                else do
+                  path <- Marshal.peekArray actualLength pathPtr
+                  for (fromIntegral <$> path) $ \nodeIdx ->
+                    Sqlite.executeSql
+                      database
+                      ["SELECT hash FROM node WHERE idx = ?;"]
+                      [SQLInteger nodeIdx]
+                      <&> \case
+                        [] -> error $ "failed to find hash for path node " <> show nodeIdx
+                        [[SQLText nodeHash]] -> nodeHash
+                        _ : _ : _ -> error "should be impossible due to primary key constraint on idx column"
+                        [_] -> error "hash column has unexpected data type"
+
+  pure $ \origin destination -> do
+    result <- newEmptyMVar
+    forkIO $ putMVar result =<< findPath origin destination
     pure result
-    
+  where
+    {-
+        getStepsTo :: Int64 -> IO ByteString
+        getStepsTo idx = do
+          Sqlite.executeSql database ["SELECT steps FROM path WHERE destination = ?;"] [SQLInteger idx] >>= \case
+            [[SQLBlob steps]] -> pure steps
+            [] -> undefined -- TODO: compute
+    -}
+
+    {-
+      destinations <- newTVarIO [1 .. fromIntegral nodeCount]
+      let nextDest =
+            atomically $
+              stateTVar destinations $
+                uncons >>> \case
+                  Just (next, remaining) -> (Just next, remaining)
+                  Nothing -> (Nothing, [])
+          worker stepMapPtr =
+            nextDest >>= \case
+              Just destination -> do
+                stepMapSize <- Query.c_indexPaths predMapPtr destination (fromIntegral nodeCount) stepMapPtr
+                let stepMapSizeBytes = fromIntegral stepMapSize * sizeOf (0 :: CLong)
+                stepMapBytes <- Marshal.peekArray stepMapSizeBytes $ castPtr stepMapPtr
+                void $
+                  Sqlite.executeSql
+                    database
+                    ["INSERT INTO path (destination, steps) VALUES (?, ?);"]
+                    [SQLInteger $ fromIntegral destination, SQLBlob $ BS.pack stepMapBytes]
+                --atomically $ modifyTVar progress $ first (+ 1)
+                worker stepMapPtr
+              Nothing -> pure ()
+      workerCount <- getNumCapabilities <&> (subtract 1)
+      for_ [1 .. max 1 workerCount] $ const $ forkIO $ Marshal.allocaArray nodeCount worker
+      let wait = atomically $ do
+            remaining <- length <$> readTVar destinations
+            if remaining > 0 then retry else pure ()
+      wait
+
+      pure $ \_ _ -> do
+        result <- newMVar []
+        pure result
+    -}
+
+    getNodeIdx :: NodeHash -> IO Int64
+    getNodeIdx hash =
+      Sqlite.executeSqlScalar
+        database
+        ["SELECT idx FROM node WHERE hash = ?;"]
+        [SQLText hash]
+        <&> \(SQLInteger n) -> n
+
+    makePredMap :: Int -> IO [Int]
+    makePredMap nodeCount = do
+      predecessors <-
+        Sqlite.executeSql database ["SELECT target, source FROM edge ORDER BY target;"] []
+          <&> ((map $ \[t, s] -> (fromSQLInt t, [fromSQLInt s])) >>> IntMap.fromAscListWith (++))
+      pure $ uncurry (++) $ evalRWS (for [0 .. nodeCount] serialisePreds) predecessors 0
+
+    serialisePreds :: Int -> RWS (IntMap [Int]) [Int] Int Int
+    serialisePreds i =
+      asks (IntMap.lookup i) <&> fromMaybe [] >>= \case
+        [pred] -> pure pred
+        preds -> do
+          let n = length preds
+          tell $ n : preds
+          offset <- get <* modify (+ (1 + n))
+          pure $ negate offset
+
+    fromSQLInt :: Num a => SQLData -> a
+    fromSQLInt (SQLInteger n) = fromIntegral n
+    fromSQLInt value = error $ "expected data type" <> show value
+
+foreign import ccall safe "path.cpp"
+  c_indexPaths ::
+    Ptr CInt -> -- predMap
+    CInt -> -- destination
+    CInt -> -- nodeCount
+    Ptr CLong -> -- stepMap
+    IO CInt
 
 --  result <- liftIO newEmptyMVar
 --  let worker = do
@@ -88,51 +231,7 @@ makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -
 --  liftIO $ forkIO $ worker
 --  pure result
 
-
 {-
-    Sqlite.executeSql
-      database
-      ["SELECT steps FROM path WHERE destination = ?;"]
-      [SQLInteger destination]
-  case steps of
-    [] -> error $ "no path data for " <> show destination
-    [[SQLBlob steps]] -> do
-      let stepMapBytes = BS.unpack steps
-          stepMapSizeBytes = length stepMapBytes
-          stepMapSize = stepMapSizeBytes `div` sizeOf (0 :: CLong)
-      if stepMapSize * sizeOf (0 :: CLong) /= stepMapSizeBytes
-        then error $ "misaligned path data for " <> show destination
-        else Marshal.allocaArray stepMapSize $ \stepMapPtr -> do
-          Marshal.pokeArray (castPtr stepMapPtr) stepMapBytes
-          let maxLength = 1048576 -- 4MiB of int32_t
-          Marshal.allocaArray maxLength $ \pathPtr -> do
-            actualLength <-
-              fromIntegral
-                <$> Query.c_findPath
-                  (fromIntegral origin)
-                  (fromIntegral destination)
-                  stepMapPtr
-                  (fromIntegral stepMapSize)
-                  pathPtr
-                  (fromIntegral maxLength)
-            if actualLength == -1
-              then error "exceeded max path length"
-              else do
-                path <- Marshal.peekArray actualLength pathPtr
-                for (fromIntegral <$> path) $ \nodeIdx ->
-                  Sqlite.executeSql
-                    database
-                    ["SELECT hash FROM node WHERE idx = ?;"]
-                    [SQLInteger nodeIdx]
-                    <&> \case
-                      [] -> error $ "failed to find hash for path node " <> show nodeIdx
-                      [[SQLText nodeHash]] -> nodeHash
-                      _ : _ : _ -> error "should be impossible due to primary key constraint on idx column"
-                      [_] -> error "hash column has unexpected data type"
-    [_] -> error "steps column has unexpected data type"
-    _ : _ : _ -> error "should be impossible due to primary key constraint on destination column"
--}
-
   where
     getNodeIdx :: NodeHash -> IO Int64
     getNodeIdx hash =
@@ -146,6 +245,7 @@ makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -
       Sqlite.executeSql database ["SELECT steps FROM path WHERE destination = ?;"] [SQLInteger idx] >>= \case
         [[SQLBlob steps]] -> pure steps
         [] -> undefined -- TODO: compute
+-}
 
 foreign import ccall safe "path.cpp"
   c_findPath ::
