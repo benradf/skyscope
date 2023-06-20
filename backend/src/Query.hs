@@ -52,21 +52,6 @@ data QueryResult = QueryResult
   }
   deriving (Eq, Ord, Show, Generic, ToJSON, FromJSON)
 
---type FindPathMemo = TVar (Map (NodeHash, NodeHash) [NodeHash])
---
---type HasFindPathMemo r = (HasField "findPath" r FindPathMemo, HasMakePathFinderMemo r)
---
---getFindPathMemo :: HasFindPathMemo r => r -> FindPathMemo
---getFindPathMemo = hLookupByLabel (Label :: Label "findPath")
-
-findPath :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r [NodeHash]
-findPath dbPath origin destination = liftIO . readMVar =<< findPathAsync dbPath origin destination
-
-findPathAsync :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r (MVar [NodeHash])
-findPathAsync dbPath origin destination = do
-  pathFinder <- makePathFinder dbPath
-  liftIO $ pathFinder origin destination
-
 type PathFinder = NodeHash -> NodeHash -> IO (MVar [NodeHash])
 
 type MakePathFinderMemo = TVar (Map FilePath PathFinder)
@@ -75,6 +60,14 @@ type HasMakePathFinderMemo r = HasField "makePathFinder" r MakePathFinderMemo
 
 getMakePathFinderMemo :: HasMakePathFinderMemo r => r -> MakePathFinderMemo
 getMakePathFinderMemo = hLookupByLabel (Label :: Label "makePathFinder")
+
+findPath :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r [NodeHash]
+findPath dbPath origin destination = liftIO . readMVar =<< findPathAsync dbPath origin destination
+
+findPathAsync :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r (MVar [NodeHash])
+findPathAsync dbPath origin destination = do
+  pathFinder <- makePathFinder dbPath
+  liftIO $ pathFinder origin destination
 
 makePathFinder :: HasMakePathFinderMemo r => FilePath -> Memoize r PathFinder
 makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> liftIO $ do
@@ -109,7 +102,7 @@ makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> lif
               [[SQLBlob steps]] -> pure steps
               [_] -> error "steps column has unexpected data type"
               _ : _ : _ -> error "should be impossible due to primary key constraint on destination column"
-              [] -> do
+              [] -> do -- Path data not found in database, so compute it now.
                 stepMapSize <-
                   Query.c_indexPaths
                     predMapPtr
