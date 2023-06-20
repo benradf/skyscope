@@ -17,10 +17,10 @@ haskell_binary(
     ghcopts = [
         "-O2",
         "-Wall",
-        "-Werror",
+        #"-Werror",
         "-Wno-name-shadowing",
         "-fno-omit-yields",
-        "-fobject-code",
+        #"-fobject-code",
         "-threaded",
     ],
     extra_srcs = [

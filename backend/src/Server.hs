@@ -85,6 +85,7 @@ server port = withImportDb $ \importDatabase -> do
               pure memo
       newMemo = do
         findPathMemo <- newTVar Map.empty
+        makePathFinderMemo <- newTVar Map.empty
         floodNodesMemo <- newTVar Map.empty
         filterNodesMemo <- newTVar Map.empty
         getNeighboursMemo <- newTVar Map.empty
@@ -92,6 +93,7 @@ server port = withImportDb $ \importDatabase -> do
         unifyComponentsMemo <- newTVar Map.empty
         pure $
           ((Label :: Label "findPath") .=. findPathMemo)
+            .*. ((Label :: Label "makePathFinder") .=. makePathFinderMemo)
             .*. ((Label :: Label "floodNodes") .=. floodNodesMemo)
             .*. ((Label :: Label "filterNodes") .=. filterNodesMemo)
             .*. ((Label :: Label "getNeighbours") .=. getNeighboursMemo)
