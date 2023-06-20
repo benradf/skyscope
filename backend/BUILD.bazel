@@ -80,8 +80,24 @@ cc_library(
 
 cc_library(
     name = "import",
-    srcs = [":src/import.cpp"],
-    deps = ["@sqlite.dev"],
-    linkstatic = True,
+    srcs = [
+        ":src/import.cpp",
+    ],
+    deps = [
+        "@sqlite.dev",
+    ],
+    #alwayslink = True,
+    #data = [
+    #    "@sqlite.dev//:lib",
+    #    "@sqlite.dev//:lib/libsqlite3.so.0",
+    #],
+    #linkstatic = True,
+    linkopts = [
+        # HACK: Temporarily solve GHCi linker error.
+        "-L/nix/store/0ssb3rn06pqn5qjms1ma9qcp10n2jjny-sqlite-3.41.2/lib",
+        #"-L$(execpath @sqlite.dev//:lib)",
+        "-lsqlite3",
+        #"$(execpath @sqlite.dev//:lib/libsqlite3.so.0)",
+    ],
     copts = copts,
 )
