@@ -85,14 +85,13 @@ makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> lif
       findPath origin destination = Sqlite.withDatabase dbPath $ \database -> do
         let getNodeIdx :: NodeHash -> IO Int64
             getNodeIdx hash = do
-              putStrLn $ "getNodeIdx: hash = " <> show hash
               Sqlite.executeSqlScalar
                 database
                 ["SELECT idx FROM node WHERE hash = ?;"]
-                [SQLText $ traceValue "hash" hash]
+                [SQLText hash]
                 <&> \(SQLInteger n) -> n
-        origin <- getNodeIdx $ traceValue "origin" origin
-        destination <- getNodeIdx $ traceValue "destination" destination
+        origin <- getNodeIdx origin
+        destination <- getNodeIdx destination
         steps <-
           Sqlite.executeSql
             database
