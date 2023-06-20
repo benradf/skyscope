@@ -56,44 +56,44 @@ data QueryResult = QueryResult
   }
   deriving (Eq, Ord, Show, Generic, ToJSON, FromJSON)
 
-type FindPathMemo = TVar (Map (NodeHash, NodeHash) [NodeHash])
+--type FindPathMemo = TVar (Map (NodeHash, NodeHash) [NodeHash])
+--
+--type HasFindPathMemo r = (HasField "findPath" r FindPathMemo, HasMakePathFinderMemo r)
+--
+--getFindPathMemo :: HasFindPathMemo r => r -> FindPathMemo
+--getFindPathMemo = hLookupByLabel (Label :: Label "findPath")
 
-type HasFindPathMemo r = (HasField "findPath" r FindPathMemo, HasMakePathFinderMemo r)
+findPath :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r [NodeHash]
+findPath dbPath origin destination = liftIO . readMVar =<< findPathAsync dbPath origin destination
 
-getFindPathMemo :: HasFindPathMemo r => r -> FindPathMemo
-getFindPathMemo = hLookupByLabel (Label :: Label "findPath")
-
-findPath :: HasFindPathMemo r => Database -> NodeHash -> NodeHash -> Memoize r [NodeHash]
-findPath database = curry $
-  memoize "findPath" getFindPathMemo $ \(origin, destination) ->
-    liftIO . readMVar =<< findPathAsync database origin destination
-
-findPathAsync :: HasMakePathFinderMemo r => Database -> NodeHash -> NodeHash -> Memoize r (MVar [NodeHash])
-findPathAsync database origin destination = do
-  pathFinder <- makePathFinder database ()
+findPathAsync :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r (MVar [NodeHash])
+findPathAsync dbPath origin destination = do
+  pathFinder <- makePathFinder dbPath
   liftIO $ pathFinder origin destination
 
-type PathFinder = Database -> NodeHash -> NodeHash -> IO (MVar [NodeHash])
+type PathFinder = NodeHash -> NodeHash -> IO (MVar [NodeHash])
 
-type MakePathFinderMemo = TVar (Map () PathFinder)
+type MakePathFinderMemo = TVar (Map FilePath PathFinder)
 
 type HasMakePathFinderMemo r = HasField "makePathFinder" r MakePathFinderMemo
 
 getMakePathFinderMemo :: HasMakePathFinderMemo r => r -> MakePathFinderMemo
 getMakePathFinderMemo = hLookupByLabel (Label :: Label "makePathFinder")
 
-makePathFinder :: HasMakePathFinderMemo r => Database -> () -> Memoize r PathFinder
-makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -> liftIO $ do
-  void $ Sqlite.executeSql database ["DELETE FROM path;"] []
-  nodeCount <- Sqlite.executeSqlScalar database ["SELECT COUNT(idx) FROM node;"] [] <&> fromSQLInt
-  predMap <- makePredMap nodeCount
-  let predMapSize = length predMap
-  predMapPtr <- Marshal.mallocArray predMapSize
-  Marshal.pokeArray predMapPtr $ fromIntegral <$> predMap
-  stepMapPtr <- Marshal.mallocArray nodeCount
+makePathFinder :: HasMakePathFinderMemo r => FilePath -> Memoize r PathFinder
+makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> liftIO $ do
+  (nodeCount, predMapPtr, stepMapPtr) <- Sqlite.withDatabase dbPath $ \database -> do
+    void $ Sqlite.executeSql database ["DELETE FROM path;"] []
+    nodeCount <- Sqlite.executeSqlScalar database ["SELECT COUNT(idx) FROM node;"] [] <&> fromSQLInt
+    predMap <- makePredMap database nodeCount
+    let predMapSize = length predMap
+    predMapPtr <- Marshal.mallocArray predMapSize
+    Marshal.pokeArray predMapPtr $ fromIntegral <$> predMap
+    stepMapPtr <- Marshal.mallocArray nodeCount
+    pure (nodeCount, predMapPtr, stepMapPtr)
 
-  let findPath :: Database -> NodeHash -> NodeHash -> IO [NodeHash]
-      findPath database origin destination = do
+  let findPath :: NodeHash -> NodeHash -> IO [NodeHash]
+      findPath origin destination = Sqlite.withDatabase dbPath $ \database -> do
         let getNodeIdx :: NodeHash -> IO Int64
             getNodeIdx hash = do
               putStrLn $ "getNodeIdx: hash = " <> show hash
@@ -170,8 +170,8 @@ makePathFinder database = memoize "makePathFinder" getMakePathFinderMemo $ \() -
     pure result
   where
 
-    makePredMap :: Int -> IO [Int]
-    makePredMap nodeCount = do
+    makePredMap :: Database -> Int -> IO [Int]
+    makePredMap database nodeCount = do
       predecessors <-
         Sqlite.executeSql database ["SELECT target, source FROM edge ORDER BY target;"] []
           <&> ((map $ \[t, s] -> (fromSQLInt t, [fromSQLInt s])) >>> IntMap.fromAscListWith (++))

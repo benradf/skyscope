@@ -84,7 +84,7 @@ server port = withImportDb $ \importDatabase -> do
               modifyTVar memos $ Map.insert id memo
               pure memo
       newMemo = do
-        findPathMemo <- newTVar Map.empty
+        --findPathMemo <- newTVar Map.empty
         makePathFinderMemo <- newTVar Map.empty
         floodNodesMemo <- newTVar Map.empty
         filterNodesMemo <- newTVar Map.empty
@@ -92,8 +92,8 @@ server port = withImportDb $ \importDatabase -> do
         getContextMemo <- newTVar Map.empty
         unifyComponentsMemo <- newTVar Map.empty
         pure $
-          ((Label :: Label "findPath") .=. findPathMemo)
-            .*. ((Label :: Label "makePathFinder") .=. makePathFinderMemo)
+          --((Label :: Label "findPath") .=. findPathMemo)
+          ((Label :: Label "makePathFinder") .=. makePathFinderMemo)
             .*. ((Label :: Label "floodNodes") .=. floodNodesMemo)
             .*. ((Label :: Label "filterNodes") .=. filterNodesMemo)
             .*. ((Label :: Label "getNeighbours") .=. getNeighboursMemo)
@@ -168,7 +168,7 @@ server port = withImportDb $ \importDatabase -> do
     Web.post "/:importId/path" $
       Json.eitherDecode <$> Web.body >>= \case
         Right (origin, destination) ->
-          let route Import {..} database = withMemo importId $ Query.findPath database origin destination
+          let route Import {..} _ = withMemo importId $ Query.findPath importPath origin destination
            in Web.json =<< importRoute importDatabase route
         Left err -> badRequest err
 
@@ -196,7 +196,7 @@ server port = withImportDb $ \importDatabase -> do
     Web.post "/:importId/render" $
       Json.eitherDecode <$> Web.body >>= \case
         Right nodeStates ->
-          let route Import {..} database = withMemo importId $ Render.renderOutput <$> Render.renderGraph database nodeStates
+          let route Import {..} database = withMemo importId $ Render.renderOutput <$> Render.renderGraph database importPath nodeStates
            in Web.text =<< importRoute importDatabase route <* Web.setHeader "Content-Type" "image/svg+xml"
         Left err -> badRequest err
 

@@ -33,7 +33,7 @@ import qualified Data.Text.Lazy as LazyText
 import Data.Traversable (for)
 import Database.SQLite3 (SQLData (..))
 import Model
-import Query (HasFindPathMemo, findPath, selectEdges)
+import Query (HasMakePathFinderMemo, findPath, selectEdges)
 import Sqlite (Database)
 import qualified Sqlite
 import System.Exit (ExitCode (..))
@@ -48,11 +48,12 @@ data RenderResult = RenderResult
   }
 
 renderGraph ::
-  (HasUnifyComponentsMemo r, HasFindPathMemo r) =>
+  (HasUnifyComponentsMemo r, HasMakePathFinderMemo r) =>
   Database ->
+  FilePath ->
   NodeMap NodeState ->
   Memoize r RenderResult
-renderGraph database nodeStates = do
+renderGraph database dbPath nodeStates = do
   -- TODO: memoize rendered svgs
 
   edges <- fmap (nub . concat) $
@@ -86,7 +87,7 @@ renderGraph database nodeStates = do
         [SQLText nodeHash]
         <&> \[[SQLText nodeType, SQLText nodeData]] -> Node nodeType nodeData
 
-  links <- findPathLinks database nodeStates edges
+  links <- findPathLinks database dbPath nodeStates edges
 
   let graph =
         Text.unlines
@@ -166,17 +167,18 @@ data PathLink = PathLink
   deriving (Eq, Ord, Show)
 
 findPathLinks ::
-  (HasUnifyComponentsMemo r, HasFindPathMemo r) =>
+  (HasUnifyComponentsMemo r, HasMakePathFinderMemo r) =>
   Database ->
+  FilePath ->
   NodeMap NodeState ->
   [Edge] ->
   Memoize r [PathLink]
-findPathLinks database nodeStates edges =
+findPathLinks database dbPath nodeStates edges =
   timed "findPathLinks" $
     nub <$> do
       let components = findComponents edges nodeStates
           pairs = concat [[(c1, c2), (c2, c1)] | c1 : cs <- tails components, c2 <- cs]
-      fmap catMaybes $ for pairs $ uncurry $ unifyComponents database nodeStates
+      fmap catMaybes $ for pairs $ uncurry $ unifyComponents database dbPath nodeStates
 
 type Component = NodeMap NodeState
 
@@ -231,16 +233,17 @@ getUnifyComponentsMemo :: HasUnifyComponentsMemo r => r -> UnifyComponentsMemo
 getUnifyComponentsMemo = hLookupByLabel (Label :: Label "unifyComponents")
 
 unifyComponents ::
-  (HasUnifyComponentsMemo r, HasFindPathMemo r) =>
+  (HasUnifyComponentsMemo r, HasMakePathFinderMemo r) =>
   Database ->
+  FilePath ->
   NodeMap NodeState ->
   Component ->
   Component ->
   Memoize r (Maybe PathLink)
-unifyComponents database nodeStates = curry $
+unifyComponents database dbPath nodeStates = curry $
   memoize "unifyComponents" getUnifyComponentsMemo $ \(c1, c2) -> do
     let unify (origin, destination) =
-          findPath database origin destination <&> \path ->
+          findPath dbPath origin destination <&> \path ->
             let pathState = (id &&& flip Map.lookup nodeStates) <$> path
                 hiddenCount = length $ filter (isNothing . snd) pathState
                 shortenPath path = nonEmpty =<< dropExpanded <$> nonEmpty path
