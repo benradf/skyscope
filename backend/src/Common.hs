@@ -15,7 +15,7 @@ import System.Environment (lookupEnv)
 type Memoize e a = ReaderT e IO a
 
 memoize ::
-  (Ord k, Show k) =>
+  (Ord k, Show k {- , Show a -}) =>
   String ->
   (e -> TVar (Map k a)) ->
   (k -> Memoize e a) ->
