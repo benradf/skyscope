@@ -16,12 +16,14 @@ import Data.FileEmbed (embedFile)
 import Data.Foldable (asum)
 import Data.Function ((&))
 import Data.Functor ((<&>))
+import Data.GraphViz.Parsing (parseIt')
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import Database.SQLite3 (SQLData (..))
@@ -29,7 +31,23 @@ import Foreign.C.String (CString, withCString)
 import Sqlite (Database)
 import qualified Sqlite
 import System.IO (Handle)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Prelude
+import Data.GraphViz (DotGraph, preview)
+import Data.GraphViz.Types (fromCanonical, nodeInformation, Path)
+import Data.GraphViz.Attributes.Complete (Attributes)
+import Data.GraphViz.Types
+import Data.Foldable (for_)
+
+repl :: IO ()
+repl = do
+  graph <- parseIt' @(DotGraph Text) . LazyText.pack <$> readFile "/tmp/skyscope.dot"
+  let nodes = nodeInformation False graph
+  for_ (Map.assocs nodes) $ \(k, v) -> putStrLn $ show k <> " -> " <> show v
+  pure ()
+
+-- $> Import.repl
 
 withDatabase :: String -> FilePath -> (Database -> IO a) -> IO a
 withDatabase label path action = timed label $
