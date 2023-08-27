@@ -22,6 +22,7 @@ import Data.GraphViz.Types (edgeInformation, nodeInformation)
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map as Map
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -34,7 +35,6 @@ import Sqlite (Database)
 import qualified Sqlite
 import System.IO (Handle)
 import Prelude
-import qualified Data.Map as Map
 
 repl :: IO ()
 repl = do
