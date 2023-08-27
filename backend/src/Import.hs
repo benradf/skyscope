@@ -31,19 +31,15 @@ import Foreign.C.String (CString, withCString)
 import Sqlite (Database)
 import qualified Sqlite
 import System.IO (Handle)
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Prelude
-import Data.GraphViz (DotGraph, preview)
-import Data.GraphViz.Types (fromCanonical, edgeInformation, nodeInformation, Path)
-import Data.GraphViz.Attributes.Complete (Attributes)
-import Data.GraphViz.Types
+import Data.GraphViz (DotGraph)
+import Data.GraphViz.Types (edgeInformation, nodeInformation)
 import Data.Foldable (for_)
 
 repl :: IO ()
 repl = do
   graph <- parseIt' @(DotGraph Text) . LazyText.pack <$> readFile "/tmp/skyscope.dot"
-  let nodes = nodeInformation False graph
+  let _nodes = nodeInformation False graph
       edges = edgeInformation False graph
   --for_ (Map.assocs nodes) $ \(k, v) -> putStrLn $ show k <> " -> " <> show v
   for_ edges $ \edge -> putStrLn $ show edge
