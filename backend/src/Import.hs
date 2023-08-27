@@ -34,13 +34,14 @@ import Sqlite (Database)
 import qualified Sqlite
 import System.IO (Handle)
 import Prelude
+import qualified Data.Map as Map
 
 repl :: IO ()
 repl = do
   graph <- parseIt' @(DotGraph Text) . LazyText.pack <$> readFile "/tmp/skyscope.dot"
-  let _nodes = nodeInformation False graph
+  let nodes = nodeInformation False graph
       edges = edgeInformation False graph
-  --for_ (Map.assocs nodes) $ \(k, v) -> putStrLn $ show k <> " -> " <> show v
+  for_ (Map.assocs nodes) $ \(k, v) -> putStrLn $ show k <> " -> " <> show v
   for_ edges $ \edge -> putStrLn $ show edge
   pure ()
 
