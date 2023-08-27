@@ -13,28 +13,27 @@ import Control.Category ((>>>))
 import Control.Monad (guard)
 import Data.Bifunctor (first)
 import Data.FileEmbed (embedFile)
-import Data.Foldable (asum)
+import Data.Foldable (asum, for_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
+import Data.GraphViz (DotGraph)
 import Data.GraphViz.Parsing (parseIt')
+import Data.GraphViz.Types (edgeInformation, nodeInformation)
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
+import qualified Data.Text.Lazy as LazyText
 import Database.SQLite3 (SQLData (..))
 import Foreign.C.String (CString, withCString)
 import Sqlite (Database)
 import qualified Sqlite
 import System.IO (Handle)
 import Prelude
-import Data.GraphViz (DotGraph)
-import Data.GraphViz.Types (edgeInformation, nodeInformation)
-import Data.Foldable (for_)
 
 repl :: IO ()
 repl = do
