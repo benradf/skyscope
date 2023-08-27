@@ -35,7 +35,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Prelude
 import Data.GraphViz (DotGraph, preview)
-import Data.GraphViz.Types (fromCanonical, nodeInformation, Path)
+import Data.GraphViz.Types (fromCanonical, edgeInformation, nodeInformation, Path)
 import Data.GraphViz.Attributes.Complete (Attributes)
 import Data.GraphViz.Types
 import Data.Foldable (for_)
@@ -44,7 +44,9 @@ repl :: IO ()
 repl = do
   graph <- parseIt' @(DotGraph Text) . LazyText.pack <$> readFile "/tmp/skyscope.dot"
   let nodes = nodeInformation False graph
-  for_ (Map.assocs nodes) $ \(k, v) -> putStrLn $ show k <> " -> " <> show v
+      edges = edgeInformation False graph
+  --for_ (Map.assocs nodes) $ \(k, v) -> putStrLn $ show k <> " -> " <> show v
+  for_ edges $ \edge -> putStrLn $ show edge
   pure ()
 
 -- $> Import.repl
