@@ -12,14 +12,16 @@ import Control.Monad (guard, when)
 import Data.Aeson (decode, encode)
 import Data.Bifunctor (first, second)
 import Data.Foldable (traverse_)
-import Data.Functor (void, (<&>))
+import Data.Functor ((<&>), void)
 import Data.List (isPrefixOf, stripPrefix)
+import Data.Maybe (fromMaybe)
 import qualified Import
 import Network.HTTP.Client (Request (..), RequestBody (..), defaultManagerSettings, httpLbs, newManager, parseRequest, responseBody)
 import qualified Server
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs, setEnv)
 import System.FilePath.Posix (takeBaseName)
+import System.IO (stdin)
 import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (emptyTempFile)
 import System.Posix.Daemonize (daemonize)
@@ -36,14 +38,18 @@ main = do
   getArgs >>= \case
     ["server"] -> pure ()
     "import" : args -> importWorkspace args
-    _ -> error "usage: skyscope server|import [--query=EXPR|--no-query] [--aquery=EXPR|--no-query]"
+    "import-graphviz" : args -> importGraphviz args
+    _ -> usageError
 
-importWorkspace :: [String] -> IO ()
-importWorkspace args = do
-  workspace <- getBazelWorkspace
+usageError :: a
+usageError = error $ "usage: skyscope server|import [--query=EXPR|--no-query] [--aquery=EXPR|--no-query]\n"
+                  <> "       skyscope import-graphviz [TAG]"
+
+importNew :: Maybe String -> (FilePath -> IO ()) -> IO ()
+importNew workspace populateDatabase = do
+  workspace <- flip fromMaybe workspace <$> getBazelOutputBase
   setEnv "SKYSCOPE_WORKSPACE" workspace
   setEnv "SKYSCOPE_OUTPUT_BASE" =<< getBazelOutputBase
-  let (queryExpr, aqueryExpr) = parseImportArgs args
 
   -- Create a new sqlite database to import into.
   let dbTemplate = takeBaseName workspace <> ".sqlite"
@@ -51,6 +57,21 @@ importWorkspace args = do
   createDirectoryIfMissing True importsDir
   dbPath <- emptyTempFile importsDir dbTemplate
 
+  populateDatabase dbPath
+
+  putStrLn "import complete, notifying server"
+  notifyServer workspace dbPath
+
+importGraphviz :: [String] -> IO ()
+importGraphviz args = importNew tag $ Import.importGraphviz stdin
+  where
+    tag = case args of
+      [] -> Nothing
+      [tag] -> Just tag
+      _ -> usageError
+
+importWorkspace :: [String] -> IO ()
+importWorkspace args = importNew Nothing $ \dbPath -> do
   let withBazel args f = do
         logCommand "bazel" args
         withCreateProcess
@@ -61,10 +82,10 @@ importWorkspace args = do
             }
           $ \_ (Just bazelStdout) _ _ -> f bazelStdout dbPath
 
+  let (queryExpr, aqueryExpr) = parseImportArgs args
   when (aqueryExpr /= "") $ do
     putStrLn "importing extra context for actions (pass --no-aquery to skip this step)"
     (withBazel ["aquery", aqueryExpr] Import.importActions)
-
   when (queryExpr /= "") $ do
     putStrLn "importing extra context for targets (pass --no-query to skip this step)"
     (withBazel ["query", queryExpr, "--output", "build"] Import.importTargets)
@@ -81,11 +102,7 @@ importWorkspace args = do
           "detailed" <$ setEnv "SKYSCOPE_LEGACY_BAZEL" "1"
         | otherwise -> pure "deps"
       Nothing -> error "unable to determine bazel version"
-
   withStdinFrom "bazel" ["dump", "--skyframe=" <> dumpSkyframeOpt] (Import.importSkyframe dbPath)
-
-  putStrLn "import complete, notifying server"
-  notifyServer workspace dbPath
 
 parseImportArgs :: [String] -> (String, String)
 parseImportArgs = \case
@@ -186,14 +203,3 @@ getBazelVersion = do
           Just version -> pure version
           Nothing -> find remaining
   lines <$> readProcess "bazel" ["version"] "" <&> find
-
-{-
-  getArgs >>= \case
-    ["import-skyframe", path] -> Import.importSkyframe path
-    ["import-targets", path] -> Import.importTargets path
-    ["import-actions", path] -> Import.importActions path
-    ["server", port] -> case readMaybe port of
-      Nothing -> error $ "unable to parse port: " <> port
-      Just port -> daemonize $ Server.server port
-    _ -> putStrLn "invalid args" *> exitFailure
--}
