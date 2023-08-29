@@ -157,23 +157,3 @@ importGraphviz source path = withDatabase "importing graphviz" path $ \database 
   Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
     indexedEdges <&> \(g, s, t) -> SQLInteger <$> [g, s, t]
   putStrLn $ path <> "\n    imported " <> show (Map.size nodes) <> " nodes and " <> show (length edges) <> " edges"
-
-{-
-repl :: IO ()
-repl = do
-  --threadDelay 2_000_000
-  graph <- parseIt' @(DotGraph Text) . LazyText.pack <$> readFile "/tmp/skyscope.dot"
-  let nodes = graphNodes graph
-      edges = graphEdges graph
-  putStrLn "\x1b[1;37mnodes:\x1b[0m"
-  for_ nodes $ \DotNode {..} -> do
-    putStrLn $ "  " <> Text.unpack nodeID
-    for_ nodeAttributes $ \case
-      Label (StrLabel label) -> putStrLn $ "    " <> LazyText.unpack label
-      _ -> pure ()
-  putStrLn "\x1b[1;37medges:\x1b[0m"
-  for_ edges $ \edge -> putStrLn $ show edge
-  pure ()
-
---- $> Import.repl
--}
