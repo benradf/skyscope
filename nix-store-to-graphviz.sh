@@ -9,12 +9,12 @@ sql-query() {
 printf 'digraph "" {\n'
 
 sql-query 'select id, path from ValidPaths;' | sed '
-  s/\([0-9]\+\)\s\+\(\S*\)/echo "  node_\1 [ label=\\"$(basename \2)\\" ];"/e
+  s/\([0-9]\+\)\s\+\(\S*\)/echo "  node\1 [ label=\\"$(basename \2)\\" ];"/e
   s/label="\([0-9a-z]\{32\}-\([^"]*\)\)"/label="\2\\n\1"/
 '
 
 sql-query 'select referrer, reference from Refs where referrer != reference;' | sed '
-  s/\([0-9]\+\)\s\+\([0-9]\+\)/  node_\1 -> node_\2;/
+  s/\([0-9]\+\)\s\+\([0-9]\+\)/  node\1 -> node\2;/
 '
 
 printf '}\n'
