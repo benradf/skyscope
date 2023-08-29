@@ -37,7 +37,6 @@ import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Lazy.IO as LazyText
 import Data.Traversable (for)
 import Database.SQLite3 (SQLData (..))
-import Debug.Trace (trace)
 import Foreign.C.String (CString, withCString)
 import Sqlite (Database)
 import qualified Sqlite
@@ -150,12 +149,17 @@ importGraphviz source path = withDatabase "importing graphviz" path $ \database 
         [] -> nodeID
   Sqlite.batchInsert database "node" ["idx", "hash", "data", "type"] $
     Map.assocs indexedNodes <&> \(nodeID, (nodeIdx, (_, attributes))) ->
-      let nodeData = getLabel nodeID attributes
-          nodeType = head $ Text.splitOn "\\n" nodeData
-       in trace ("nodeType: " <> Text.unpack nodeType) $ SQLInteger nodeIdx : (SQLText <$> [nodeID, nodeData, nodeType])
+      let label = getLabel nodeID attributes
+          (nodeData, nodeType) = case Text.splitOn "\\n" label of
+            nodeType : rest@(_ : _) -> (Text.intercalate "\\n" rest, nodeType)
+            [ nodeData ] -> (nodeData, nodeID)
+            _ -> error "unexpected graphviz node label"
+       in SQLInteger nodeIdx : (SQLText <$> [nodeID, nodeData, nodeType])
   Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
     indexedEdges <&> \(g, s, t) -> SQLInteger <$> [g, s, t]
+  putStrLn $ path <> "\n    imported " <> show (Map.size nodes) <> " nodes and " <> show (length edges) <> " edges"
 
+{-
 repl :: IO ()
 repl = do
   --threadDelay 2_000_000
@@ -172,4 +176,5 @@ repl = do
   for_ edges $ \edge -> putStrLn $ show edge
   pure ()
 
--- $> Import.repl
+--- $> Import.repl
+-}
