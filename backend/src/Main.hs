@@ -12,7 +12,7 @@ import Control.Monad (guard, when)
 import Data.Aeson (decode, encode)
 import Data.Bifunctor (first, second)
 import Data.Foldable (traverse_)
-import Data.Functor ((<&>), void)
+import Data.Functor (void, (<&>))
 import Data.List (isPrefixOf, stripPrefix)
 import Data.Maybe (fromMaybe)
 import qualified Import
@@ -42,12 +42,14 @@ main = do
     _ -> usageError
 
 usageError :: a
-usageError = error $ "usage: skyscope server|import [--query=EXPR|--no-query] [--aquery=EXPR|--no-query]\n"
-                  <> "       skyscope import-graphviz [TAG]"
+usageError =
+  error $
+    "usage: skyscope server|import [--query=EXPR|--no-query] [--aquery=EXPR|--no-query]\n"
+      <> "       skyscope import-graphviz [TAG]"
 
 importNew :: Maybe String -> (FilePath -> IO ()) -> IO ()
 importNew workspace populateDatabase = do
-  workspace <- flip fromMaybe workspace <$> getBazelOutputBase
+  workspace <- flip fromMaybe workspace <$> getBazelWorkspace
   setEnv "SKYSCOPE_WORKSPACE" workspace
   setEnv "SKYSCOPE_OUTPUT_BASE" =<< getBazelOutputBase
 
@@ -186,8 +188,8 @@ logCommand command args = putStrLn $ "\x1b[1;37m" <> command <> " " <> unwords a
 getBazelOutputBase :: IO FilePath
 getBazelOutputBase =
   lines <$> readProcess "bazel" ["info", "output_base"] "" <&> \case
-    workspace : _ -> workspace
-    _ -> error "failed to get workspace"
+    outputBase : _ -> outputBase
+    _ -> error "failed to get output_base"
 
 getBazelWorkspace :: IO FilePath
 getBazelWorkspace =
