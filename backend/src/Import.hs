@@ -18,7 +18,7 @@ import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.GraphViz (DotGraph)
 import Data.GraphViz.Parsing (parseIt')
-import Data.GraphViz.Types (edgeInformation, nodeInformation)
+import Data.GraphViz.Types (graphNodes, graphEdges)
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
@@ -39,9 +39,11 @@ import Prelude
 repl :: IO ()
 repl = do
   graph <- parseIt' @(DotGraph Text) . LazyText.pack <$> readFile "/tmp/skyscope.dot"
-  let nodes = nodeInformation False graph
-      edges = edgeInformation False graph
-  for_ (Map.assocs nodes) $ \(k, v) -> putStrLn $ show k <> " -> " <> show v
+  let nodes = graphNodes graph
+      edges = graphEdges graph
+  putStrLn "\x1b[1;37mnodes:\x1b[0m"
+  for_ nodes $ \node -> putStrLn $ show node
+  putStrLn "\x1b[1;37medges:\x1b[0m"
   for_ edges $ \edge -> putStrLn $ show edge
   pure ()
 
