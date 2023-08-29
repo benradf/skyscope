@@ -15,14 +15,13 @@ import Control.Monad (guard)
 import Control.Monad.State (evalState, gets, modify)
 import Data.Bifunctor (first)
 import Data.FileEmbed (embedFile)
-import Data.Foldable (asum, for_)
+import Data.Foldable (asum)
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.GraphViz (DotGraph)
 import Data.GraphViz.Attributes.Complete (Attribute (..), Label (..))
-import Data.GraphViz.Parsing (parseIt')
 import qualified Data.GraphViz.Parsing as GraphViz
-import Data.GraphViz.Types (DotEdge (..), DotNode (..), graphEdges, graphNodes)
+import Data.GraphViz.Types (DotEdge (..))
 import qualified Data.GraphViz.Types as GraphViz
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -152,7 +151,7 @@ importGraphviz source path = withDatabase "importing graphviz" path $ \database 
       let label = getLabel nodeID attributes
           (nodeData, nodeType) = case Text.splitOn "\\n" label of
             nodeType : rest@(_ : _) -> (Text.intercalate "\\n" rest, nodeType)
-            [ nodeData ] -> (nodeData, nodeID)
+            [nodeData] -> (nodeData, nodeID)
             _ -> error "unexpected graphviz node label"
        in SQLInteger nodeIdx : (SQLText <$> [nodeID, nodeData, nodeType])
   Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
