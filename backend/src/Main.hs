@@ -67,9 +67,9 @@ importNew workspace populateDatabase = do
 importGraphviz :: [String] -> IO ()
 importGraphviz args = importNew tag $ Import.importGraphviz stdin
   where
-    tag = case args of
-      [] -> Nothing
-      [tag] -> Just tag
+    tag = Just $ case args of
+      [] -> "graphviz-import"
+      [tag] -> tag
       _ -> usageError
 
 importWorkspace :: [String] -> IO ()

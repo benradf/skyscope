@@ -11,7 +11,6 @@ module Import where
 import Common
 import Control.Arrow ((&&&))
 import Control.Category ((>>>))
-import Control.Concurrent (threadDelay)
 import Control.Monad (guard)
 import Control.Monad.State (evalState, gets, modify)
 import Data.Bifunctor (first)
@@ -38,6 +37,7 @@ import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Lazy.IO as LazyText
 import Data.Traversable (for)
 import Database.SQLite3 (SQLData (..))
+import Debug.Trace (trace)
 import Foreign.C.String (CString, withCString)
 import Sqlite (Database)
 import qualified Sqlite
@@ -144,29 +144,17 @@ importGraphviz source path = withDatabase "importing graphviz" path $ \database 
           sourceIndex <- fst <$> Map.lookup fromNode indexedNodes
           targetIndex <- fst <$> Map.lookup toNode indexedNodes
           pure (0, sourceIndex, targetIndex)
-  for indexedEdges $ \x -> putStrLn $ show x
-
-  {-
-      496 -  (nodes, edges) <-
-      497 -    Text.getContents <&> Parser.parseOnly parser >>= \case
-      498 -      Left err -> error $ "failed to parse skyframe graph: " <> err
-      499 -      Right graph -> pure graph
-      500 -  putStrLn $ "node count = " <> show (length nodes) <> ", edge count = " <> show (length edges)
-      501 -  let assignIndex node = gets (,node) <* modify (+ 1)
-      502 -      indexedNodes = evalState (for nodes assignIndex) 1
-      503 -      coerceMaybe = fromMaybe $ error "parser produced an edge with an unknown node"
-      504 -      indexedEdges = coerceMaybe $
-      505 -        for (Set.toList edges) $ \(Edge group source target) -> do
-      506 -          (sourceIndex, _) <- Map.lookup source indexedNodes
-      507 -          (targetIndex, _) <- Map.lookup target indexedNodes
-      508 -          pure (group, sourceIndex, targetIndex)
-      509 -  Sqlite.batchInsert database "node" ["idx", "hash", "data", "type"] $
-      510 -    Map.assocs indexedNodes <&> \(nodeHash, (nodeIdx, Node nodeData nodeType)) ->
-      511 -      SQLInteger nodeIdx : (SQLText <$> [nodeHash, nodeType <> ":" <> nodeData, nodeType])
-      512 -  Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
-      513 -    indexedEdges <&> \(g, s, t) -> SQLInteger <$> [fromIntegral g, s, t]
-  -}
-  pure ()
+      getLabel nodeID attrs = case attrs of
+        Label (StrLabel label) : _ -> LazyText.toStrict label
+        _ : attrs' -> getLabel nodeID attrs'
+        [] -> nodeID
+  Sqlite.batchInsert database "node" ["idx", "hash", "data", "type"] $
+    Map.assocs indexedNodes <&> \(nodeID, (nodeIdx, (_, attributes))) ->
+      let nodeData = getLabel nodeID attributes
+          nodeType = head $ Text.splitOn "\\n" nodeData
+       in trace ("nodeType: " <> Text.unpack nodeType) $ SQLInteger nodeIdx : (SQLText <$> [nodeID, nodeData, nodeType])
+  Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
+    indexedEdges <&> \(g, s, t) -> SQLInteger <$> [g, s, t]
 
 repl :: IO ()
 repl = do
