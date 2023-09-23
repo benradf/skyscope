@@ -1,3 +1,6 @@
 nix-shell -p binutils --command '
   LD_LIBRARY_PATH=/nix/store/b13h86pg7lbf6vpc1vwzw6akmakyw1bs-gcc-11.3.0-lib/lib/:/nix/store/k54w79m79x2hkc1i8ps7l4fry576dpvs-zlib-1.2.13/lib /tmp/bazelisk-linux-amd64 version
 '
+
+
+time nix-shell -p bazelisk --command 'bazelisk build envoy'
