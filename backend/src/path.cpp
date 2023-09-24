@@ -1,3 +1,4 @@
+#include <iostream>
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -54,6 +55,8 @@ extern "C" int32_t c_indexPaths(
     int32_t nodeCount,
     int64_t* stepMap
 ) {
+    cout << "c_indexPaths: destination = " << destination << endl;
+
     vector<int32_t> steps(nodeCount + 1);
     queue<pair<int32_t, int32_t>> frontier;
     auto predMapIndirect = predMap + nodeCount + 1;

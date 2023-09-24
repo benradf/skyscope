@@ -72,7 +72,7 @@ findPathAsync dbPath origin destination = do
 makePathFinder :: HasMakePathFinderMemo r => FilePath -> Memoize r PathFinder
 makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> liftIO $ do
   (nodeCount, predMapPtr, stepMapPtr) <- Sqlite.withDatabase dbPath $ \database -> do
-    void $ Sqlite.executeSql database ["DELETE FROM path;"] []
+    --void $ Sqlite.executeSql database ["DELETE FROM path;"] []
     nodeCount <- Sqlite.executeSqlScalar database ["SELECT COUNT(idx) FROM node;"] [] <&> fromSQLInt
     predMap <- makePredMap database nodeCount
     let predMapSize = length predMap

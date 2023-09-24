@@ -53,10 +53,10 @@ renderGraph ::
   FilePath ->
   NodeMap NodeState ->
   Memoize r RenderResult
-renderGraph database dbPath nodeStates = do
+renderGraph database dbPath nodeStates = timed "renderGraph" $ do
   -- TODO: memoize rendered svgs
 
-  edges <- fmap (nub . concat) $
+  edges <- timed "edges" $ fmap (nub . concat) $
     flip Map.traverseWithKey nodeStates $
       \nodeHash state ->
         liftIO $
@@ -79,7 +79,7 @@ renderGraph database dbPath nodeStates = do
           Set.fromList $
             Map.keys nodeStates
               <> (edges >>= \(Edge _ source target) -> [source, target])
-  nodeMap <- for nodeIdentityMap $ \nodeHash ->
+  nodeMap <- timed "nodeMap" $ for nodeIdentityMap $ \nodeHash ->
     liftIO $
       Sqlite.executeSql
         database
@@ -123,7 +123,7 @@ renderGraph database dbPath nodeStates = do
             "}"
           ]
 
-  renderOutput <- liftIO $ do
+  renderOutput <- timed "dot" $ liftIO $ do
     Text.writeFile "/tmp/skyscope.dot" graph -- For debugging
     readProcessWithExitCode "dot" ["-Tsvg"] graph <&> \case
       (ExitFailure code, _, err) -> error $ "dot exit " <> show code <> ": " <> Text.unpack err
