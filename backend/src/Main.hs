@@ -120,8 +120,6 @@ parseImportArgs = \case
       _ -> error $ "invalid arg: " <> arg
   [] -> ("", "")
 
---[] -> ("deps(//...)", "deps(//...)")
-
 notifyServer :: String -> FilePath -> IO ()
 notifyServer workspace dbPath = do
   serverPort <- getServerPort
