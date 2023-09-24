@@ -10,11 +10,13 @@
 module Query where
 
 import Common
+import System.IO.Error (isDoesNotExistError)
 import Control.Category ((>>>))
+import Control.Monad (guard)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Concurrent.STM.TVar (TVar)
-import Control.Exception (onException)
+import Control.Exception (onException, tryJust)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.RWS (RWS, evalRWS)
 import Control.Monad.RWS.Class
@@ -62,19 +64,25 @@ getMakePathFinderMemo :: HasMakePathFinderMemo r => r -> MakePathFinderMemo
 getMakePathFinderMemo = hLookupByLabel (Label :: Label "makePathFinder")
 
 findPath :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r [NodeHash]
-findPath dbPath origin destination = liftIO . readMVar =<< findPathAsync dbPath origin destination
+findPath dbPath origin destination = timed "DEBUG~2" $ liftIO . readMVar =<< findPathAsync dbPath origin destination
 
 findPathAsync :: HasMakePathFinderMemo r => FilePath -> NodeHash -> NodeHash -> Memoize r (MVar [NodeHash])
 findPathAsync dbPath origin destination = do
   pathFinder <- makePathFinder dbPath
-  liftIO $ pathFinder origin destination
+  liftIO $ timed "findPathAsync" $ pathFinder origin destination
 
 makePathFinder :: HasMakePathFinderMemo r => FilePath -> Memoize r PathFinder
 makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> liftIO $ do
-  (nodeCount, predMapPtr, stepMapPtr) <- Sqlite.withDatabase dbPath $ \database -> do
-    void $ Sqlite.executeSql database ["DELETE FROM path;"] []
+  (nodeCount, predMapPtr, stepMapPtr) <- Sqlite.withDatabase dbPath $ \database -> timed "path finder init" $ do
+    void $ timed "DELETE FROM path;" $ Sqlite.executeSql database ["DELETE FROM path;"] []
     nodeCount <- Sqlite.executeSqlScalar database ["SELECT COUNT(idx) FROM node;"] [] <&> fromSQLInt
-    predMap <- makePredMap database nodeCount
+    let predMapFile = dbPath <> ".predMap"
+    predMap <- tryJust (guard . isDoesNotExistError) (read <$> readFile predMapFile) >>= \case
+      Right predMap -> pure predMap
+      Left _ -> do
+        predMap <- makePredMap database nodeCount
+        writeFile predMapFile $ show predMap
+        pure predMap
     let predMapSize = length predMap
     predMapPtr <- Marshal.mallocArray predMapSize
     Marshal.pokeArray predMapPtr $ fromIntegral <$> predMap
@@ -82,7 +90,7 @@ makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> lif
     pure (nodeCount, predMapPtr, stepMapPtr)
 
   let findPath :: NodeHash -> NodeHash -> IO [NodeHash]
-      findPath origin destination = Sqlite.withDatabase dbPath $ \database -> do
+      findPath origin destination = Sqlite.withDatabase dbPath $ \database -> timed "findPath" $ do
         let getNodeIdx :: NodeHash -> IO Int64
             getNodeIdx hash = do
               Sqlite.executeSqlScalar
@@ -103,7 +111,8 @@ makePathFinder = memoize "makePathFinder" getMakePathFinderMemo $ \dbPath -> lif
               _ : _ : _ -> error "should be impossible due to primary key constraint on destination column"
               [] -> do
                 -- Path data not found in database, so compute it now.
-                stepMapSize <-
+                putStrLn $ "destination: " <> show destination
+                stepMapSize <- timed "c_indexPaths" $
                   Query.c_indexPaths
                     predMapPtr
                     (fromIntegral destination)

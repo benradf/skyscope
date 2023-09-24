@@ -239,9 +239,10 @@ unifyComponents ::
   Component ->
   Memoize r (Maybe PathLink)
 unifyComponents dbPath nodeStates = curry $
-  memoize "unifyComponents" getUnifyComponentsMemo $ \(c1, c2) -> do
-    let unify (origin, destination) =
-          findPath dbPath origin destination <&> \path ->
+  memoize "unifyComponents" getUnifyComponentsMemo $ \(c1, c2) -> timed "unifyComponents" $ do
+    liftIO $ putStrLn $ "unifyComponents: \n" <> show c1 <> "\n" <> show c2
+    let unify (origin, destination) = timed "unify" $
+          (timed "DEBUG~1" $ findPath dbPath origin destination) <&> \path ->
             let pathState = (id &&& flip Map.lookup nodeStates) <$> path
                 hiddenCount = length $ filter (isNothing . snd) pathState
                 shortenPath path = nonEmpty =<< dropExpanded <$> nonEmpty path
