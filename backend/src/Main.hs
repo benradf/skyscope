@@ -128,7 +128,8 @@ parseImportArgs = \case
       (_, Just aqueryExpr) -> second (const aqueryExpr) (parseImportArgs args)
       _ -> error $ "invalid arg: " <> arg
   [] -> ("", "")
-  --[] -> ("deps(//...)", "deps(//...)")
+
+--[] -> ("deps(//...)", "deps(//...)")
 
 notifyServer :: String -> FilePath -> IO ()
 notifyServer workspace dbPath = do

@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS edge (
   FOREIGN KEY (target) REFERENCES node(idx)
 );
 
+CREATE INDEX IF NOT EXISTS source_index ON edge (source);
+
+CREATE INDEX IF NOT EXISTS target_index ON edge (target);
+
 CREATE TABLE IF NOT EXISTS path (
   destination INTEGER,
   steps BLOB,

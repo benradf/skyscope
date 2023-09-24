@@ -32,6 +32,7 @@ import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Set (Set)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.Traversable (for)
 import Database.SQLite3 (SQLData (..))
 import Foreign.C.Types (CInt (..), CLong (..))
@@ -259,12 +260,11 @@ getNeighbours ::
   NodeHash ->
   Memoize r [NodeHash]
 getNeighbours database = memoize "getNeighbours" getGetNeighboursMemo $ \nodeHash -> do
-  incomingEdges <- liftIO $ selectEdges database nodeHash "t.hash = ?"
-  outgoingEdges <- liftIO $ selectEdges database nodeHash "s.hash = ?"
-  pure $ filter (/= nodeHash) $ sort $ nub $ concat $ projectEdge <$> (incomingEdges <> outgoingEdges)
+  edges <- liftIO $ selectEdges database [nodeHash]
+  pure $ filter (/= nodeHash) $ sort $ nub $ concat $ projectEdge <$> edges
   where
     projectEdge :: [SQLData] -> [NodeHash]
-    projectEdge [_, SQLText source, SQLText target] = [source, target]
+    projectEdge [_, _, SQLText source, SQLText target] = [source, target]
     projectEdge _ = error "sql pattern match unexpectedly failed"
 
 type GetContextMemo = TVar (Map [Text] (Map Text Text))
@@ -288,13 +288,18 @@ getContext database = memoize "getContext" getContextMemo $
             [[SQLText contextData]] -> Just (key, contextData)
             _ -> Nothing
 
-selectEdges :: Database -> NodeHash -> Text -> IO [[SQLData]]
-selectEdges database nodeHash whereClause =
-  Sqlite.executeSql
-    database
-    [ "SELECT group_num, s.hash, t.hash FROM edge",
-      "INNER JOIN node AS s ON s.idx = edge.source",
-      "INNER JOIN node AS t ON t.idx = edge.target",
-      "WHERE " <> whereClause <> ";"
-    ]
-    [SQLText nodeHash]
+selectEdges :: Database -> [NodeHash] -> IO [[SQLData]]
+selectEdges database nodeHashes = do
+  let select column =
+        Sqlite.executeSql
+          database
+          [ "SELECT " <> column <> ", group_num, s.hash, t.hash FROM edge",
+            "INNER JOIN node AS s ON s.idx = edge.source",
+            "INNER JOIN node AS t ON t.idx = edge.target",
+            "WHERE " <> column <> " IN " <> valueList <> ";"
+          ]
+          []
+      valueList = "(" <> Text.intercalate ", " nodeHashes <> ")"
+  incomingEdges <- select "t.hash"
+  outgoingEdges <- select "s.hash"
+  pure $ incomingEdges <> outgoingEdges

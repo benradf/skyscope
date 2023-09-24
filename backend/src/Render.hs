@@ -53,19 +53,33 @@ renderGraph ::
   FilePath ->
   NodeMap NodeState ->
   Memoize r RenderResult
-renderGraph database dbPath nodeStates = do
+renderGraph database dbPath nodeStates = timed "renderGraph" $ do
   -- TODO: memoize rendered svgs
 
-  edges <- fmap (nub . concat) $
+  let nodes = Map.keys nodeStates
+
+  --edges <-
+  --  timed "edges" $ liftIO $
+  --    selectEdges database nodes
+  --      <&> ( >>=
+  --              \[SQLText hash, SQLInteger group, SQLText source, SQLText target] ->
+  --                let collapsed = Map.lookup hash nodeStates == Just Collapsed
+  --                    hidden = (`Map.notMember` nodeStates)
+  --                 in if collapsed && (hidden source || hidden target)
+  --                      then []
+  --                      else [Edge (fromIntegral group) source target]
+  --          )
+
+  edges <- timed "edges" $ fmap (nub . concat) $
     flip Map.traverseWithKey nodeStates $
       \nodeHash state ->
-        liftIO $
-          mconcat
-            [ selectEdges database nodeHash "s.hash = ?1",
-              selectEdges database nodeHash "t.hash = ?1"
-            ]
+        liftIO $ selectEdges database [ nodeHash ]
+          {-mconcat
+            [ timed "outgoing" $ selectEdges database [ nodeHash ] "s.hash = ?1",
+              timed "incoming" $ selectEdges database [ nodeHash ] "t.hash = ?1"
+            ] -}
             <&> ( >>=
-                    \[SQLInteger group, SQLText source, SQLText target] ->
+                    \[_, SQLInteger group, SQLText source, SQLText target] ->
                       let collapsed = state == Collapsed
                           hidden = (`Map.notMember` nodeStates)
                        in if collapsed && (hidden source || hidden target)
@@ -73,19 +87,23 @@ renderGraph database dbPath nodeStates = do
                             else [Edge (fromIntegral group) source target]
                 )
 
+  liftIO $ putStrLn $ "#edges = " <> show (length edges)
+
+
   let nodeIdentityMap :: NodeMap NodeHash
       nodeIdentityMap =
         Map.fromSet id $
           Set.fromList $
             Map.keys nodeStates
               <> (edges >>= \(Edge _ source target) -> [source, target])
-  nodeMap <- for nodeIdentityMap $ \nodeHash ->
-    liftIO $
-      Sqlite.executeSql
-        database
-        ["SELECT type, data FROM node WHERE hash = ?;"]
-        [SQLText nodeHash]
-        <&> \[[SQLText nodeType, SQLText nodeData]] -> Node nodeType nodeData
+  nodeMap <- timed "nodeMap" $
+    for nodeIdentityMap $ \nodeHash ->
+      liftIO $
+        Sqlite.executeSql
+          database
+          ["SELECT type, data FROM node WHERE hash = ?;"]
+          [SQLText nodeHash]
+          <&> \[[SQLText nodeType, SQLText nodeData]] -> Node nodeType nodeData
 
   links <- findPathLinks dbPath nodeStates edges
 
@@ -123,11 +141,12 @@ renderGraph database dbPath nodeStates = do
             "}"
           ]
 
-  renderOutput <- liftIO $ do
-    Text.writeFile "/tmp/skyscope.dot" graph -- For debugging
-    readProcessWithExitCode "dot" ["-Tsvg"] graph <&> \case
-      (ExitFailure code, _, err) -> error $ "dot exit " <> show code <> ": " <> Text.unpack err
-      (ExitSuccess, svg, _) -> LazyText.fromStrict svg
+  renderOutput <- timed "dot" $
+    liftIO $ do
+      Text.writeFile "/tmp/skyscope.dot" graph -- For debugging
+      readProcessWithExitCode "dot" ["-Tsvg"] graph <&> \case
+        (ExitFailure code, _, err) -> error $ "dot exit " <> show code <> ": " <> Text.unpack err
+        (ExitSuccess, svg, _) -> LazyText.fromStrict svg
 
   pure $ RenderResult renderOutput 0 0 0
   where
