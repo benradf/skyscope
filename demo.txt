@@ -4,3 +4,7 @@ nix-shell -p binutils --command '
 
 
 time nix-shell -p bazelisk --command 'bazelisk build envoy'
+
+
+
+bazel shutdown; bazel build envoy && skyscope import --aquery='//envoy/... union //source/...'

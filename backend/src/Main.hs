@@ -76,38 +76,47 @@ importGraphviz args = importNew tag $ Import.importGraphviz stdin
       _ -> usageError
 
 importWorkspace :: [String] -> IO ()
-importWorkspace args = importNew Nothing $ \dbPath -> do
-  let withBazel args f = do
-        logCommand "bazel" args
-        withCreateProcess
-          (proc "bazel" args)
-            { std_in = CreatePipe,
-              std_out = CreatePipe,
-              std_err = Inherit
-            }
-          $ \_ (Just bazelStdout) _ _ -> f bazelStdout dbPath
+importWorkspace args = do
+  --putStrLn "\x1b[1;36mDEBUG 1\x1b[0m"
+  --ExitSuccess <- system "bazel dump --skyframe=deps | wc -l"
+  importNew Nothing $ \dbPath -> do
+    --putStrLn "\x1b[1;36mDEBUG 2\x1b[0m"
+    --ExitSuccess <- system "bazel dump --skyframe=deps | wc -l"
+    let withBazel args f = do
+          logCommand "bazel" args
+          withCreateProcess
+            (proc "bazel" args)
+              { std_in = CreatePipe,
+                std_out = CreatePipe,
+                std_err = Inherit
+              }
+            $ \_ (Just bazelStdout) _ _ -> f bazelStdout dbPath
 
-  let (queryExpr, aqueryExpr) = parseImportArgs args
-  when (aqueryExpr /= "") $ do
-    putStrLn "importing extra context for actions (pass --no-aquery to skip this step)"
-    (withBazel ["aquery", aqueryExpr] Import.importActions)
-  when (queryExpr /= "") $ do
-    putStrLn "importing extra context for targets (pass --no-query to skip this step)"
-    (withBazel ["query", queryExpr, "--output", "build"] Import.importTargets)
+    let (queryExpr, aqueryExpr) = parseImportArgs args
+    when (aqueryExpr /= "") $ do
+      putStrLn "importing extra context for actions (pass --no-aquery to skip this step)"
+      (withBazel ["aquery", aqueryExpr] Import.importActions)
+    --putStrLn "\x1b[1;36mDEBUG 3\x1b[0m"
+    --ExitSuccess <- system "bazel dump --skyframe=deps | wc -l"
+    when (queryExpr /= "") $ do
+      putStrLn "importing extra context for targets (pass --no-query to skip this step)"
+      (withBazel ["query", queryExpr, "--output", "build"] Import.importTargets)
+    --putStrLn "\x1b[1;36mDEBUG 4\x1b[0m"
+    --ExitSuccess <- system "bazel dump --skyframe=deps | wc -l"
 
-  -- Skyframe dump option depends on Bazel version.
-  dumpSkyframeOpt <-
-    getBazelVersion >>= \case
-      Just version
-        | or
-            [ "3." `isPrefixOf` version,
-              "4." `isPrefixOf` version,
-              "5." `isPrefixOf` version
-            ] ->
-          "detailed" <$ setEnv "SKYSCOPE_LEGACY_BAZEL" "1"
-        | otherwise -> pure "deps"
-      Nothing -> error "unable to determine bazel version"
-  withStdinFrom "bazel" ["dump", "--skyframe=" <> dumpSkyframeOpt] (Import.importSkyframe dbPath)
+    -- Skyframe dump option depends on Bazel version.
+    dumpSkyframeOpt <-
+      getBazelVersion >>= \case
+        Just version
+          | or
+              [ "3." `isPrefixOf` version,
+                "4." `isPrefixOf` version,
+                "5." `isPrefixOf` version
+              ] ->
+            "detailed" <$ setEnv "SKYSCOPE_LEGACY_BAZEL" "1"
+          | otherwise -> pure "deps"
+        Nothing -> error "unable to determine bazel version"
+    withStdinFrom "bazel" ["dump", "--skyframe=" <> dumpSkyframeOpt] (Import.importSkyframe dbPath)
 
 parseImportArgs :: [String] -> (String, String)
 parseImportArgs = \case
@@ -118,7 +127,8 @@ parseImportArgs = \case
       (Just queryExpr, _) -> first (const queryExpr) (parseImportArgs args)
       (_, Just aqueryExpr) -> second (const aqueryExpr) (parseImportArgs args)
       _ -> error $ "invalid arg: " <> arg
-  [] -> ("deps(//...)", "deps(//...)")
+  [] -> ("", "")
+  --[] -> ("deps(//...)", "deps(//...)")
 
 notifyServer :: String -> FilePath -> IO ()
 notifyServer workspace dbPath = do
