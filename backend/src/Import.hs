@@ -14,7 +14,7 @@ import Control.Category ((>>>))
 import Control.Monad (guard)
 import Control.Monad.State (evalState, gets, modify)
 import qualified Data.Aeson as Json
-import Data.Aeson.Types ((.:), FromJSON(..), withObject)
+import Data.Aeson.Types ((.:), (.:?), FromJSON(..), withObject)
 import qualified Data.Aeson.Types as Json
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as LBS
@@ -235,17 +235,18 @@ data CycloneComponent = CycloneComponent
 instance FromJSON CycloneComponent where
   parseJSON = withObject "CycloneComponent" $ \o -> do
     let cycloneComponent = o
+        emptyOr = fromMaybe ""
     cycloneBomRef <- o .: "bom-ref"
-    cycloneDescription <- o .: "description"
-    cycloneName <- o .: "name"
-    cycloneVersion <- o .: "version"
+    cycloneDescription <- emptyOr <$> (o .:? "description")
+    cycloneName <- emptyOr <$> (o .:? "name")
+    cycloneVersion <- emptyOr <$> (o .:? "version")
     pure CycloneComponent {..}
 
 importCyclone :: Handle -> FilePath -> IO ()
 importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
   Json.eitherDecode @[CycloneComponent] <$> LBS.hGetContents source >>= \case
-    Left _ -> undefined
-    Right _ -> undefined
+    Left err -> error $ "importCyclone: " <> err
+    Right components -> for_ components $ putStrLn . show
 
 importGraphviz :: Handle -> FilePath -> IO ()
 importGraphviz source path = withDatabase "importing graphviz" path $ \database -> do
