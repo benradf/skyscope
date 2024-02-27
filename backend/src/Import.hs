@@ -18,7 +18,7 @@ import Data.Char (isAlphaNum, isSpace)
 import Data.FileEmbed (embedFile)
 import Data.Foldable (asum, for_)
 import Data.Function ((&))
-import Data.Functor (void, (<&>))
+import Data.Functor ((<&>), void)
 import Data.GraphViz (DotGraph)
 import Data.GraphViz.Attributes.Complete (Attribute (..), Label (..))
 import qualified Data.GraphViz.Parsing as GraphViz
@@ -40,10 +40,11 @@ import Data.Tuple (swap)
 import Database.SQLite3 (SQLData (..))
 import Foreign.C.String (CString, withCString)
 import GHC.Stack (HasCallStack)
-import Sqlite (Database)
-import qualified Sqlite
-import System.IO (Handle)
+import Model
 import Prelude
+import qualified Sqlite
+import Sqlite (Database)
+import System.IO (Handle)
 
 withDatabase :: String -> FilePath -> (Database -> IO a) -> IO a
 withDatabase label path action = timed label $
@@ -226,6 +227,35 @@ importGraphviz source path = withDatabase "importing graphviz" path $ \database 
   Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
     indexedEdges <&> \(g, s, t) -> SQLInteger <$> [g, s, t]
   putStrLn $ path <> "\n    imported " <> show (Map.size nodes) <> " nodes and " <> show (length edges) <> " edges"
+
+importGeneric :: FilePath -> Database -> NodeMap Text -> [(NodeHash, NodeHash)] -> IO ()
+importGeneric path database nodes edges = do
+  let assignIndex node = gets (,node) <* modify (+ 1)
+      indexedNodes = evalState (for nodes assignIndex) 1
+      coerceMaybe = fromMaybe $ errorRed "parser produced an edge with an unknown node"
+      indexedEdges = coerceMaybe $
+        for edges $ \(fromNode, toNode) -> do
+          sourceIndex <- fst <$> Map.lookup fromNode indexedNodes
+          targetIndex <- fst <$> Map.lookup toNode indexedNodes
+          pure (0, sourceIndex, targetIndex)
+  Sqlite.batchInsert database "node" ["idx", "hash", "data", "type"] $
+    Map.assocs indexedNodes <&> \(nodeID, (nodeIdx, label)) ->
+      let (nodeData, nodeType) = case Text.splitOn "\\n" label of
+            nodeType : rest@(_ : _) ->
+              let allowed c = isAlphaNum c || c == '_'
+                  nodeType' = Text.filter allowed nodeType
+                  nodeData' = Text.intercalate " " $ nodeType' : rest
+               in (nodeData', nodeType')
+            [nodeData] -> (nodeData, nodeID)
+            _ -> errorRed "unexpected graphviz node label"
+       in SQLInteger nodeIdx : (SQLText <$> [nodeID, nodeData, nodeType])
+  Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
+    indexedEdges <&> \(g, s, t) -> SQLInteger <$> [g, s, t]
+  putStrLn $ path <> "\n    imported " <> show (Map.size nodes) <> " nodes and " <> show (length edges) <> " edges"
+
+importCyclone :: Handle -> FilePath -> IO ()
+importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
+  pure ()
 
 errorRed :: HasCallStack => String -> a
 errorRed message = error $ "\x1b[31m" <> message <> "\x1b[0m"

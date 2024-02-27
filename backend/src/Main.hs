@@ -42,6 +42,7 @@ main = do
   getArgs >>= \case
     ["server"] -> pure ()
     "import" : args -> importWorkspace args
+    "import-cyclone" : args -> importCyclone args
     "import-graphviz" : args -> importGraphviz args
     _ -> usageError
 
@@ -85,6 +86,14 @@ usageError =
         "         import-graphviz [LABEL]",
         "\x1b[0m"
       ]
+
+importCyclone :: [String] -> IO ()
+importCyclone args = importNew label $ Import.importCyclone stdin
+  where
+    label = Just $ case args of
+      [] -> "cyclone-import"
+      [label] -> label
+      _ -> usageError
 
 importGraphviz :: [String] -> IO ()
 importGraphviz args = importNew label $ Import.importGraphviz stdin
