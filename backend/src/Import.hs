@@ -196,37 +196,22 @@ findLine prefix paragraph =
           result -> result
    in find $ Text.lines paragraph
 
+importCyclone :: Handle -> FilePath -> IO ()
+importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
+  pure ()
+
 importGraphviz :: Handle -> FilePath -> IO ()
 importGraphviz source path = withDatabase "importing graphviz" path $ \database -> do
   dotGraph <- GraphViz.parseIt' @(DotGraph Text) <$> LazyText.hGetContents source
   let (nodes, edges) = (GraphViz.nodeInformation False &&& GraphViz.graphEdges) dotGraph
-  let assignIndex node = gets (,node) <* modify (+ 1)
-      indexedNodes = evalState (for nodes assignIndex) 1
-      coerceMaybe = fromMaybe $ errorRed "parser produced an edge with an unknown node"
-      indexedEdges = coerceMaybe $
-        for edges $ \DotEdge {..} -> do
-          sourceIndex <- fst <$> Map.lookup fromNode indexedNodes
-          targetIndex <- fst <$> Map.lookup toNode indexedNodes
-          pure (0, sourceIndex, targetIndex)
-      getLabel nodeID attrs = case attrs of
-        Label (StrLabel label) : _ -> LazyText.toStrict label
-        _ : attrs' -> getLabel nodeID attrs'
-        [] -> nodeID
-  Sqlite.batchInsert database "node" ["idx", "hash", "data", "type"] $
-    Map.assocs indexedNodes <&> \(nodeID, (nodeIdx, (_, attributes))) ->
-      let label = getLabel nodeID attributes
-          (nodeData, nodeType) = case Text.splitOn "\\n" label of
-            nodeType : rest@(_ : _) ->
-              let allowed c = isAlphaNum c || c == '_'
-                  nodeType' = Text.filter allowed nodeType
-                  nodeData' = Text.intercalate " " $ nodeType' : rest
-               in (nodeData', nodeType')
-            [nodeData] -> (nodeData, nodeID)
-            _ -> errorRed "unexpected graphviz node label"
-       in SQLInteger nodeIdx : (SQLText <$> [nodeID, nodeData, nodeType])
-  Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
-    indexedEdges <&> \(g, s, t) -> SQLInteger <$> [g, s, t]
-  putStrLn $ path <> "\n    imported " <> show (Map.size nodes) <> " nodes and " <> show (length edges) <> " edges"
+  importGeneric path database (Map.fromList $ convertNode <$> Map.assocs nodes) (convertEdge <$> edges)
+  where
+    convertNode (nodeID, (_, attrs)) = (nodeID, getLabel nodeID attrs)
+    convertEdge DotEdge {..} = (fromNode, toNode)
+    getLabel nodeID attrs = case attrs of
+      Label (StrLabel label) : _ -> LazyText.toStrict label
+      _ : attrs' -> getLabel nodeID attrs'
+      [] -> nodeID
 
 importGeneric :: FilePath -> Database -> NodeMap Text -> [(NodeHash, NodeHash)] -> IO ()
 importGeneric path database nodes edges = do
@@ -252,10 +237,6 @@ importGeneric path database nodes edges = do
   Sqlite.batchInsert database "edge" ["group_num", "source", "target"] $
     indexedEdges <&> \(g, s, t) -> SQLInteger <$> [g, s, t]
   putStrLn $ path <> "\n    imported " <> show (Map.size nodes) <> " nodes and " <> show (length edges) <> " edges"
-
-importCyclone :: Handle -> FilePath -> IO ()
-importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
-  pure ()
 
 errorRed :: HasCallStack => String -> a
 errorRed message = error $ "\x1b[31m" <> message <> "\x1b[0m"
