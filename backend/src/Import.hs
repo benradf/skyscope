@@ -13,6 +13,8 @@ import Control.Arrow ((&&&))
 import Control.Category ((>>>))
 import Control.Monad (guard)
 import Control.Monad.State (evalState, gets, modify)
+import Data.Aeson.Types ((.:), FromJSON(..), withObject)
+import qualified Data.Aeson.Types as Json
 import Data.Bifunctor (first)
 import Data.Char (isAlphaNum, isSpace)
 import Data.FileEmbed (embedFile)
@@ -196,6 +198,47 @@ findLine prefix paragraph =
           result -> result
    in find $ Text.lines paragraph
 
+    {-
+        {
+          "bom-ref": "/nix/store/zzrp853p377h0344yjbm9qmmvk4gd9dv-readline-8.2p10-dev",
+          "description": "Library for interactive line editing",
+          "externalReferences": [
+            {
+              "type": "website",
+              "url": "https://savannah.gnu.org/projects/readline/"
+            }
+          ],
+          "licenses": [
+            {
+              "license": {
+                "id": "GPL-3.0-or-later"
+              }
+            }
+          ],
+          "name": "readline",
+          "purl": "pkg:generic/readline@8.2p10",
+          "type": "application",
+          "version": "8.2p10"
+        }
+    -}
+
+data CycloneComponent = CycloneComponent
+  { cycloneComponent :: Json.Object
+  , cycloneBomRef :: Text
+  , cycloneDescription :: Text
+  , cycloneName :: Text
+  , cycloneVersion :: Text
+  } deriving Show
+
+instance FromJSON CycloneComponent where
+  parseJSON = withObject "CycloneComponent" $ \o -> do
+    let cycloneComponent = o
+    cycloneBomRef <- o .: "bom-ref"
+    cycloneDescription <- o .: "description"
+    cycloneName <- o .: "name"
+    cycloneVersion <- o .: "version"
+    pure CycloneComponent {..}
+
 importCyclone :: Handle -> FilePath -> IO ()
 importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
   pure ()
@@ -206,8 +249,8 @@ importGraphviz source path = withDatabase "importing graphviz" path $ \database 
   let (nodes, edges) = (GraphViz.nodeInformation False &&& GraphViz.graphEdges) dotGraph
   importGeneric path database (Map.fromList $ convertNode <$> Map.assocs nodes) (convertEdge <$> edges)
   where
-    convertNode (nodeID, (_, attrs)) = (nodeID, getLabel nodeID attrs)
     convertEdge DotEdge {..} = (fromNode, toNode)
+    convertNode (nodeID, (_, attrs)) = (nodeID, getLabel nodeID attrs)
     getLabel nodeID attrs = case attrs of
       Label (StrLabel label) : _ -> LazyText.toStrict label
       _ : attrs' -> getLabel nodeID attrs'
