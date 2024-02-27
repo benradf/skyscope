@@ -13,9 +13,11 @@ import Control.Arrow ((&&&))
 import Control.Category ((>>>))
 import Control.Monad (guard)
 import Control.Monad.State (evalState, gets, modify)
+import qualified Data.Aeson as Json
 import Data.Aeson.Types ((.:), FromJSON(..), withObject)
 import qualified Data.Aeson.Types as Json
 import Data.Bifunctor (first)
+import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isAlphaNum, isSpace)
 import Data.FileEmbed (embedFile)
 import Data.Foldable (asum, for_)
@@ -241,6 +243,7 @@ instance FromJSON CycloneComponent where
 
 importCyclone :: Handle -> FilePath -> IO ()
 importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
+  Json.decode @CycloneComponent <$> LBS.hGetContents source
   pure ()
 
 importGraphviz :: Handle -> FilePath -> IO ()
