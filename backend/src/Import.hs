@@ -243,8 +243,9 @@ instance FromJSON CycloneComponent where
 
 importCyclone :: Handle -> FilePath -> IO ()
 importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
-  Json.decode @CycloneComponent <$> LBS.hGetContents source
-  pure ()
+  Json.eitherDecode @[CycloneComponent] <$> LBS.hGetContents source >>= \case
+    Left _ -> undefined
+    Right _ -> undefined
 
 importGraphviz :: Handle -> FilePath -> IO ()
 importGraphviz source path = withDatabase "importing graphviz" path $ \database -> do
