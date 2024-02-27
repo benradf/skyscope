@@ -15,9 +15,9 @@ import Control.Monad (guard)
 import Control.Monad.State (evalState, gets, modify)
 import qualified Data.Aeson as Json
 import Data.Aeson.Types ((.:), (.:?), FromJSON(..), withObject)
-import qualified Data.Aeson.Types as Json
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as LBSC
 import Data.Char (isAlphaNum, isSpace)
 import Data.FileEmbed (embedFile)
 import Data.Foldable (asum, for_)
@@ -200,33 +200,20 @@ findLine prefix paragraph =
           result -> result
    in find $ Text.lines paragraph
 
-    {-
-        {
-          "bom-ref": "/nix/store/zzrp853p377h0344yjbm9qmmvk4gd9dv-readline-8.2p10-dev",
-          "description": "Library for interactive line editing",
-          "externalReferences": [
-            {
-              "type": "website",
-              "url": "https://savannah.gnu.org/projects/readline/"
-            }
-          ],
-          "licenses": [
-            {
-              "license": {
-                "id": "GPL-3.0-or-later"
-              }
-            }
-          ],
-          "name": "readline",
-          "purl": "pkg:generic/readline@8.2p10",
-          "type": "application",
-          "version": "8.2p10"
-        }
-    -}
+data CycloneDX = CycloneDX [CycloneComponent] [(CycloneRef, CycloneRef)]
+
+instance FromJSON CycloneDX where
+  parseJSON = withObject "CycloneDX" $ \o -> do
+    components <- parseJSON =<< o .: "components"
+    dependencies <- parseJSON =<< o .: "dependencies"
+    let flatten = (>>= \(CycloneDependencies deps) -> deps)
+    pure $ CycloneDX components $ flatten dependencies
+
+type CycloneRef = Text
 
 data CycloneComponent = CycloneComponent
   { cycloneComponent :: Json.Object
-  , cycloneBomRef :: Text
+  , cycloneBomRef :: CycloneRef
   , cycloneDescription :: Text
   , cycloneName :: Text
   , cycloneVersion :: Text
@@ -242,11 +229,23 @@ instance FromJSON CycloneComponent where
     cycloneVersion <- emptyOr <$> (o .:? "version")
     pure CycloneComponent {..}
 
+data CycloneDependencies = CycloneDependencies [(CycloneRef, CycloneRef)]
+
+instance FromJSON CycloneDependencies where
+  parseJSON = withObject "CycloneDependencies" $ \o -> do
+    ref <- o .: "ref"
+    deps <- o .: "dependsOn"
+    pure $ CycloneDependencies $ (ref, ) <$> deps
+
 importCyclone :: Handle -> FilePath -> IO ()
 importCyclone source path = withDatabase "importing cyclone" path $ \database -> do
-  Json.eitherDecode @[CycloneComponent] <$> LBS.hGetContents source >>= \case
+  Json.eitherDecode @CycloneDX <$> LBS.hGetContents source >>= \case
     Left err -> error $ "importCyclone: " <> err
-    Right components -> for_ components $ putStrLn . show
+    Right (CycloneDX components dependencies) -> do
+      let convertComponent c = (cycloneBomRef c, label c)
+          label c = cycloneName c  <> " " <> cycloneVersion c <> "\n" <> json c
+          json c = Text.pack $ init $ tail $ show $ LBSC.unpack $ Json.encode $ cycloneComponent c
+      importGeneric path database (Map.fromList $ convertComponent <$> components) dependencies
 
 importGraphviz :: Handle -> FilePath -> IO ()
 importGraphviz source path = withDatabase "importing graphviz" path $ \database -> do
