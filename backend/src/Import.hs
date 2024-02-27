@@ -243,7 +243,7 @@ importCyclone source path = withDatabase "importing cyclone" path $ \database ->
     Left err -> error $ "importCyclone: " <> err
     Right (CycloneDX components dependencies) -> do
       let convertComponent c = (cycloneBomRef c, label c)
-          label c = cycloneName c  <> " " <> cycloneVersion c <> "\n" <> json c
+          label c = cycloneName c  <> " " <> cycloneVersion c <> "\\n" <> json c
           json c = Text.pack $ init $ tail $ show $ LBSC.unpack $ Json.encode $ cycloneComponent c
       importGeneric path database (Map.fromList $ convertComponent <$> components) dependencies
 
