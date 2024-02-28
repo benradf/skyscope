@@ -277,7 +277,7 @@ importGeneric path database nodes edges = do
     Map.assocs indexedNodes <&> \(nodeID, (nodeIdx, label)) ->
       let (nodeData, nodeType) = case Text.splitOn "\\n" label of
             nodeType : rest@(_ : _) ->
-              let allowed c = isAlphaNum c || c == '_' || c == '-'
+              let allowed c = isAlphaNum c || c == '_' || c == '-' || c == '.'
                   nodeType' = Text.filter allowed nodeType
                   nodeData' = Text.intercalate " " $ nodeType' : rest
                in (nodeData', nodeType')
