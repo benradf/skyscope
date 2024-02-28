@@ -45,6 +45,7 @@ stack_snapshot(
     packages = [
         "HList-0.5.2.0",
         "aeson",
+        "aeson-pretty",
         "attoparsec",
         "bytestring",
         "byteunits-0.4.0.3",

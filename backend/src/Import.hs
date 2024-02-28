@@ -14,6 +14,7 @@ import Control.Category ((>>>))
 import Control.Monad (guard)
 import Control.Monad.State (evalState, gets, modify)
 import qualified Data.Aeson as Json
+import qualified Data.Aeson.Encode.Pretty as Json
 import Data.Aeson.Types ((.:), (.:?), FromJSON(..), withObject)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as LBS
@@ -243,9 +244,11 @@ importCyclone source path = withDatabase "importing cyclone" path $ \database ->
     Left err -> error $ "importCyclone: " <> err
     Right (CycloneDX components dependencies) -> do
       let convertComponent c = (cycloneBomRef c, label c)
-          label c = cycloneName c  <> " " <> cycloneVersion c <> "\\n" <> json c
-          json c = Text.pack $ init $ tail $ show $ LBSC.unpack $ Json.encode $ cycloneComponent c
+          label c = cycloneName c  <> "-" <> cycloneVersion c <> "\\n" <> cycloneBomRef c
       importGeneric path database (Map.fromList $ convertComponent <$> components) dependencies
+      Sqlite.executeStatement ["UPDATE node SET context_key = hash;"] database
+      let prettyPrint = Text.decodeUtf8 . LBS.toStrict . Json.encodePretty
+      addContext database $ components <&> \CycloneComponent {..} -> (cycloneBomRef, prettyPrint cycloneComponent)
 
 importGraphviz :: Handle -> FilePath -> IO ()
 importGraphviz source path = withDatabase "importing graphviz" path $ \database -> do
@@ -274,7 +277,7 @@ importGeneric path database nodes edges = do
     Map.assocs indexedNodes <&> \(nodeID, (nodeIdx, label)) ->
       let (nodeData, nodeType) = case Text.splitOn "\\n" label of
             nodeType : rest@(_ : _) ->
-              let allowed c = isAlphaNum c || c == '_'
+              let allowed c = isAlphaNum c || c == '_' || c == '-'
                   nodeType' = Text.filter allowed nodeType
                   nodeData' = Text.intercalate " " $ nodeType' : rest
                in (nodeData', nodeType')

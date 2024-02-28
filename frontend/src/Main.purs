@@ -33,7 +33,7 @@ import Data.Show as Show
 import Data.String (joinWith, replaceAll, split, toLower, toUpper)
 import Data.String.CodeUnits as String
 import Data.String.Pattern (Pattern(..), Replacement(..))
-import Data.String.Regex (match, replace, search, split) as Regex
+import Data.String.Regex (match, replace, search, split, test) as Regex
 import Data.String.Regex.Flags (global, ignoreCase, noFlags) as Regex
 import Data.String.Regex.Unsafe (unsafeRegex) as Regex
 import Data.Time.Duration (Milliseconds(..))
@@ -718,6 +718,7 @@ attachGraphRenderer graph nodeConfiguration onEvent = do
                     addClass node nodeType
                     addClass title "NodeTitle"
                     addClass detail "NodeDetail"
+                    nodeHash <- Element.id node
                     let contextKey = case nodeType of
                           "BuildConfiguration" -> config
                           "ConfiguredTarget" -> label
@@ -726,6 +727,7 @@ attachGraphRenderer graph nodeConfiguration onEvent = do
                             in case join $ Regex.match regex nodeData <#> Array.NonEmpty.head of
                                 Just actionIndex -> label <#> (_ <> (" " <> actionIndex))
                                 Nothing -> Nothing
+                          _ | String.contains (Pattern "/nix/store") nodeHash -> Just nodeHash
                           _ -> Nothing
                     pure $ Just { node, nodeType, nodeData, label, contextKey, setDetail, setTitle, setTooltip }
                   Nothing -> pure Nothing
@@ -1059,16 +1061,17 @@ type NodeResults =
   }
 
 formatNodeType :: String -> String
-formatNodeType nodeType
-  = removeUnshareable
-  $ foldMap camel
-  $ Regex.split regex nodeType
+formatNodeType nodeType =
+  if Regex.test testRegex nodeType
+    then removeUnshareable $ foldMap camel $ Regex.split splitRegex nodeType
+    else nodeType
   where
     removeUnshareable s = fromMaybe s $ String.stripSuffix (Pattern " (unshareable)") s
     camel = String.uncons >>> case _ of
       Just word -> toUpper (String.singleton word.head) <> toLower word.tail
       Nothing -> ""
-    regex = Regex.unsafeRegex "[_]+" Regex.noFlags
+    splitRegex = Regex.unsafeRegex "[_]+" Regex.noFlags
+    testRegex = Regex.unsafeRegex "^[A-Z0-9_]+$" Regex.noFlags
 
 createTray :: NodeConfiguration -> Channel RenderState -> Effect Element
 createTray nodeConfiguration renderState = do

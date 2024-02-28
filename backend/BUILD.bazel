@@ -73,6 +73,7 @@ haskell_binary(
         ":path",
         "@stackage//:HList",
         "@stackage//:aeson",
+        "@stackage//:aeson-pretty",
         "@stackage//:attoparsec",
         "@stackage//:bytestring",
         "@stackage//:byteunits",

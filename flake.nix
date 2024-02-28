@@ -31,6 +31,9 @@
       in {
         devShells.default = pkgs.mkShell { nativeBuildInputs = tools; };
 
+        apps.pin = mkCommand "pin"
+          "bazel run @stackage-unpinned//:pin";
+
         apps.build = mkCommand "build"
           "bazel build //backend:skyscope --host_platform=//backend:regular_executable";
 
